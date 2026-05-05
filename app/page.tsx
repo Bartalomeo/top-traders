@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { motion, type Variants } from 'framer-motion';
 import {
   TrendingUp,
   Users,
@@ -19,20 +18,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import { CATEGORY_COLORS, CATEGORY_LABELS, formatVolume } from '@/lib/polymarket-api';
-
-const fadeUp: Variants = {
-  hidden: { opacity: 0, y: 30 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' as const } },
-};
-
-const stagger: Variants = {
-  visible: { transition: { staggerChildren: 0.08 } },
-};
-
-const scaleIn: Variants = {
-  hidden: { opacity: 0, scale: 0.9 },
-  visible: { opacity: 1, scale: 1, transition: { duration: 0.4, ease: 'backOut' as const } },
-};
 
 // P&L mini chart component
 function MiniChart({ data, positive }: { data: number[]; positive: boolean }) {
@@ -68,7 +53,7 @@ function TraderRow({ trader, index }: { trader: any; index: number }) {
   const chartData = trader.pnlHistory?.map((h: any) => h.pnl) || [];
 
   return (
-    <motion.div variants={fadeUp}>
+    <div className="animate-fade-up">
       <Link href={`/trader/${trader.address}`}>
         <div className="glass-card rounded-2xl p-5 border border-zinc-800/60 hover:border-violet-500/40 transition-all duration-300 cursor-pointer group">
           <div className="flex items-center gap-4">
@@ -153,7 +138,7 @@ function TraderRow({ trader, index }: { trader: any; index: number }) {
           )}
         </div>
       </Link>
-    </motion.div>
+    </div>
   );
 }
 
@@ -161,7 +146,7 @@ function MarketCard({ market }: { market: any }) {
   const categoryColor = CATEGORY_COLORS[market.category] || CATEGORY_COLORS.other;
 
   return (
-    <motion.div variants={scaleIn}>
+    <div className="animate-scale-in">
       <Link href={`/market/${market.slug}`}>
         <div className="glass-card rounded-2xl p-5 border border-zinc-800/60 hover:border-violet-500/40 transition-all duration-300 cursor-pointer group h-full">
           <div className="flex items-start justify-between mb-3">
@@ -222,7 +207,7 @@ function MarketCard({ market }: { market: any }) {
           )}
         </div>
       </Link>
-    </motion.div>
+    </div>
   );
 }
 
@@ -297,11 +282,7 @@ export default function HomePage() {
 
       <main className="max-w-6xl mx-auto px-4 py-12 relative">
         {/* Hero */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="text-center mb-16"
+        <section className="text-center mb-16"
         >
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-violet-500/10 border border-violet-500/20 rounded-full text-sm text-violet-300 mb-6">
             <Zap className="w-4 h-4" />
@@ -335,14 +316,10 @@ export default function HomePage() {
               Sign In
             </Link>
           </div>
-        </motion.section>
+        </section>
 
         {/* Stats */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={stagger}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-16"
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-16"
         >
           {[
             { icon: Users, label: 'Active Traders', value: '2,847', color: 'text-violet-400' },
@@ -350,24 +327,17 @@ export default function HomePage() {
             { icon: BarChart3, label: 'Markets Covered', value: '340+', color: 'text-orange-400' },
             { icon: Shield, label: 'On-Chain Verified', value: '100%', color: 'text-blue-400' },
           ].map((stat, i) => (
-            <motion.div
-              key={stat.label}
-              variants={scaleIn}
-              className="glass-card rounded-2xl p-5 border border-zinc-800/60 text-center"
+            <div className="glass-card rounded-2xl p-5 border border-zinc-800/60 text-center"
             >
               <stat.icon className={`w-6 h-6 mx-auto mb-2 ${stat.color}`} />
               <div className={`text-2xl font-bold ${stat.color}`}>{stat.value}</div>
               <div className="text-xs text-zinc-500">{stat.label}</div>
-            </motion.div>
+            </div>
           ))}
-        </motion.section>
+        </section>
 
         {/* How It Works */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="mb-16"
+        <section className="mb-16"
         >
           <h3 className="text-2xl font-bold text-center mb-8">How It Works</h3>
           <div className="grid md:grid-cols-3 gap-6">
@@ -391,10 +361,7 @@ export default function HomePage() {
                 icon: Bookmark,
               },
             ].map((item) => (
-              <motion.div
-                key={item.step}
-                variants={fadeUp}
-                className="glass-card rounded-2xl p-6 border border-zinc-800/60"
+              <div className="glass-card rounded-2xl p-6 border border-zinc-800/60"
               >
                 <div className="w-12 h-12 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mb-4">
                   <item.icon className="w-6 h-6 text-violet-400" />
@@ -402,10 +369,10 @@ export default function HomePage() {
                 <div className="text-xs text-violet-400 font-medium mb-2">Step {item.step}</div>
                 <h4 className="text-lg font-semibold mb-2">{item.title}</h4>
                 <p className="text-sm text-zinc-400">{item.desc}</p>
-              </motion.div>
+              </div>
             ))}
           </div>
-        </motion.section>
+        </section>
 
         {/* Leaderboard */}
         <section id="traders" className="mb-16">
@@ -440,10 +407,7 @@ export default function HomePage() {
             </div>
           </div>
 
-        <motion.div
-          variants={stagger}
-          initial="hidden"
-          animate="visible"
+        <div
           className="space-y-4"
         >
           {loading ? (
@@ -459,7 +423,7 @@ export default function HomePage() {
               <TraderRow key={trader.address} trader={trader} index={i} />
             ))
           )}
-          </motion.div>
+          </div>
         </section>
 
         {/* Markets */}
@@ -486,11 +450,7 @@ export default function HomePage() {
         </section>
 
         {/* CTA */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="relative"
+        <section className="relative"
         >
           <div className="absolute inset-0 bg-gradient-to-r from-violet-600/20 to-fuchsia-600/20 rounded-3xl blur-xl" />
           <div className="relative glass-card rounded-3xl p-12 border border-violet-500/30 text-center">
@@ -514,7 +474,7 @@ export default function HomePage() {
               </Link>
             </div>
           </div>
-        </motion.section>
+        </section>
 
         {/* Footer */}
         <footer className="border-t border-zinc-800/50 mt-16 pt-8 text-center text-sm text-zinc-500">

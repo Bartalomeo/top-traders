@@ -3,30 +3,21 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import {
   ArrowLeft,
-  TrendingUp,
-  TrendingDown,
-  Users,
-  Shield,
-  ExternalLink,
   ChevronRight,
   Activity,
-  Calendar,
-  BarChart3,
-  ArrowUpRight,
-  CheckCircle2,
-  XCircle,
+  Shield,
+  ExternalLink,
+  Trophy,
+  Crown,
+  TrendingUp,
+  TrendingDown,
   Loader2,
   Star,
+  BarChart3,
 } from 'lucide-react';
 import { formatVolume, CATEGORY_COLORS } from '@/lib/polymarket-api';
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-};
 
 function PnlChart({ data }: { data: { date: string; pnl: number }[] }) {
   if (!data || data.length === 0) return <div className="h-48 flex items-center justify-center text-zinc-500">No data</div>;
@@ -233,11 +224,7 @@ export default function TraderPage() {
 
       <main className="max-w-5xl mx-auto px-4 py-8 relative">
         {/* Profile Header */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="glass-card rounded-2xl p-6 border border-zinc-800/60 mb-8"
+        <div className="glass-card rounded-2xl p-6 border border-zinc-800/60 mb-8"
         >
           <div className="flex flex-col md:flex-row md:items-start gap-6">
             {/* Avatar */}
@@ -317,14 +304,10 @@ export default function TraderPage() {
               </div>
             </div>
           )}
-        </motion.div>
+        </div>
 
         {/* P&L Chart */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="glass-card rounded-2xl p-6 border border-zinc-800/60 mb-8"
+        <div className="glass-card rounded-2xl p-6 border border-zinc-800/60 mb-8"
         >
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold">P&L Over Time</h3>
@@ -345,15 +328,11 @@ export default function TraderPage() {
             </div>
           </div>
           <PnlChart data={chartData} />
-        </motion.div>
+        </div>
 
         {/* Open Positions */}
         {trader.positions && trader.positions.length > 0 && (
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={fadeUp}
-            className="mb-8"
+          <div className="mb-8"
           >
             <h3 className="text-lg font-semibold mb-4">Open Positions ({trader.positions.length})</h3>
             <div className="grid gap-4">
@@ -361,15 +340,12 @@ export default function TraderPage() {
                 <PositionCard key={pos.id} position={pos} />
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
 
         {/* Closed Positions */}
         {trader.closedPositions && trader.closedPositions.length > 0 && (
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={fadeUp}
+          <div
           >
             <h3 className="text-lg font-semibold mb-4">Closed Positions ({trader.closedPositions.length})</h3>
             <div className="grid gap-4">
@@ -377,7 +353,7 @@ export default function TraderPage() {
                 <PositionCard key={pos.id} position={pos} />
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
 
         {(!trader.positions || trader.positions.length === 0) && (!trader.closedPositions || trader.closedPositions.length === 0) && (

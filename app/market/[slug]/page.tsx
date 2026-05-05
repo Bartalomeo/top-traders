@@ -3,25 +3,21 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
 import {
   ArrowLeft,
-  TrendingUp,
-  TrendingDown,
-  Users,
   ExternalLink,
-  ChevronRight,
-  Calendar,
-  BarChart3,
-  ArrowUpRight,
-  CheckCircle2,
+  Edit3,
+  X,
+  Users,
   ThumbsUp,
   ThumbsDown,
-  Edit3,
   MessageSquare,
-  X,
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
   Share2,
   Loader2,
+  Calendar,
 } from 'lucide-react';
 import {
   getMarketBySlug,
@@ -29,11 +25,6 @@ import {
   CATEGORY_COLORS,
   CATEGORY_LABELS,
 } from '@/lib/polymarket-api';
-
-const fadeUp = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
-};
 
 export default function MarketPage() {
   const params = useParams();
@@ -126,11 +117,7 @@ export default function MarketPage() {
 
       <main className="max-w-5xl mx-auto px-4 py-8 relative">
         {/* Market Header */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeUp}
-          className="glass-card rounded-2xl p-6 border border-zinc-800/60 mb-8"
+        <div className="glass-card rounded-2xl p-6 border border-zinc-800/60 mb-8"
         >
           <div className="flex items-start justify-between mb-6">
             <div
@@ -193,7 +180,7 @@ export default function MarketPage() {
               <div className="text-xs text-zinc-500">Active Positions</div>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-zinc-900/60 p-1 rounded-xl w-fit">
@@ -219,7 +206,7 @@ export default function MarketPage() {
 
         {/* Wiki Tab */}
         {activeTab === 'wiki' && (
-          <motion.div initial="hidden" animate="visible" variants={fadeUp} className="space-y-6">
+          <div className="space-y-6">
             {/* Summary */}
             <div className="glass-card rounded-2xl p-6 border border-zinc-800/60">
               <div className="flex items-center justify-between mb-4">
@@ -294,12 +281,12 @@ export default function MarketPage() {
                 ))}
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
 
         {/* Sentiment Tab */}
         {activeTab === 'sentiment' && (
-          <motion.div initial="hidden" animate="visible" variants={fadeUp} className="space-y-6">
+          <div className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6">
               {/* X Sentiment */}
               <div className="glass-card rounded-2xl p-6 border border-zinc-800/60">
@@ -354,12 +341,12 @@ export default function MarketPage() {
                 </div>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
 
         {/* Traders Tab */}
         {activeTab === 'traders' && (
-          <motion.div initial="hidden" animate="visible" variants={fadeUp}>
+          <div>
             <div className="glass-card rounded-2xl p-8 border border-zinc-800/60 text-center">
               <Users className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">Trader Tracking Coming Soon</h3>
@@ -368,7 +355,7 @@ export default function MarketPage() {
                 Check back in the next update.
               </p>
             </div>
-          </motion.div>
+          </div>
         )}
       </main>
     </div>
