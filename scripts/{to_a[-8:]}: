@@ -1,0 +1,4 @@
+  File "<string>", line 4
+    from_a=0x+e[topics][1][26:]; to_a=0x+e[topics][2][26:]; val=int(e[data],16)/1e6
+            ^
+SyntaxError: invalid hexadecimal literal

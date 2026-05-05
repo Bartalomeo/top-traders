@@ -3,36 +3,31 @@
  * Top Traders Data Fetcher — VPS Worker
  * 
  * Fetches data from:
- * 1. Gamma API (markets, prices, volumes)
- * 2. Gnosis RPC (on-chain events for P&L)
+ * 1. Gamma API (markets, prices, volumes) → Redis
+ * 2. USDC Transfer events from Polygon RPC → aggregate trader volume
  * 
- * Writes results to Upstash Redis.
- * 
- * Run: node fetch-data.js
- * Cron every 5 min: cd /root/top-traders && node fetch-data.js >> /var/log/fetch-data.log 2>&1
+ * Writes to Upstash Redis. Cron: every 5 min.
  */
 
 const https = require('https');
-const httpsGet = (url) => new Promise((resolve, reject) => {
+
+const httpsGet = (url, timeout = 15000) => new Promise((resolve, reject) => {
   const req = https.get(url, (res) => {
     let data = '';
     res.on('data', (chunk) => data += chunk);
     res.on('end', () => resolve(data));
   });
   req.on('error', reject);
-  req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
+  req.setTimeout(timeout, () => { req.destroy(); reject(new Error('Timeout')); });
 });
 
-// Upstash Redis REST API
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const POLYGON_RPC = 'https://rpc-mainnet.matic.quiknode.pro';
+
+// Upstash Redis
+const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || 'https://relevant-mole-108874.upstash.io';
+const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || 'gQAAAAAAAalKAAIgcDEwZGVkYWYxNzhlMjA0MmY0YjA4MzQzNWE4ZDhiZGNiNw';
 
 async function redisCommand(method, ...args) {
-  if (!UPSTASH_URL || !UPSTASH_TOKEN) {
-    console.warn('Redis not configured, skipping...');
-    return null;
-  }
-  
   const body = JSON.stringify([method, ...args]);
   const res = await fetch(UPSTASH_URL, {
     method: 'POST',
@@ -43,50 +38,29 @@ async function redisCommand(method, ...args) {
   return data.result;
 }
 
-// Gamma API
-const GAMMA_BASE = 'https://gamma-api.polymarket.com';
-const GNOSIS_RPC = 'https://rpc.gnosischain.com';
-
-// Polymarket contract addresses on Gnosis
-const POLYMARKET_CONTRACTS = {
-  CLOB: '0x4b3b70D0E2F0D45cD00c4E86925E2Fc0B7C75b80',
-  CONDITION_CTF: '0xFe21Da6C0D5d4a41D8D2c0b1F1A6C8A5D0C9c0E1', //placeholder
-};
-
-// USDT on Gnosis
-const USDT_CONTRACT = '0xddafbb505ad214d7b80b1f1f025f6acfa3682066';
-
-// Transfer event signature
-const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-
-// --- Gnosis RPC helper ---
 async function rpcCall(method, params = []) {
   const body = JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 });
-  const res = await fetch(GNOSIS_RPC, {
+  const res = await fetch(POLYGON_RPC, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body,
   });
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.result;
+  const d = await res.json();
+  if (d.error) throw new Error(d.error.message);
+  return d.result;
 }
 
-// --- Fetch active markets from Gamma ---
+// --- Fetch active markets from Gamma API ---
 async function fetchMarkets() {
   try {
-    const data = await httpsGet(`${GAMMA_BASE}/markets?active=true`);
+    const data = await httpsGet('https://gamma-api.polymarket.com/markets?active=true&closed=false');
     const markets = JSON.parse(data);
     
-    if (!Array.isArray(markets)) {
-      console.warn('Gamma returned non-array:', typeof markets);
-      return [];
-    }
+    if (!Array.isArray(markets)) return [];
 
     const processed = markets.slice(0, 100).map(m => {
-      const prices = m.markets?.[0]?.outcomePrices?.split(',') || ['0.5', '0.5'];
+      const prices = (m.outcomePrices || '0.5,0.5').split(',');
       const yesPrice = parseFloat(prices[0]) || 0.5;
-      const noPrice = parseFloat(prices[1]) || 0.5;
       
       return {
         id: m.id,
@@ -94,11 +68,11 @@ async function fetchMarkets() {
         question: m.question,
         description: m.description || m.question,
         yesPrice,
-        noPrice,
-        volume24h: parseFloat(m.volume24h) || 0,
-        totalVolume: parseFloat(m.totalVolume || m.volume24h) || 0,
+        noPrice: 1 - yesPrice,
+        volume24h: parseFloat(m.volume24hr || '0'),
+        totalVolume: parseFloat(m.volume || '0'),
         category: guessCategory(m.question),
-        endDate: m.endDateIso || m.end_date || null,
+        endDate: m.endDateIso || m.endDate || null,
         active: m.active ?? true,
         closed: m.closed ?? false,
         updatedAt: new Date().toISOString(),
@@ -113,176 +87,170 @@ async function fetchMarkets() {
   }
 }
 
-// --- Fetch recent Transfer events from Gnosis to find large traders ---
-async function fetchTraderTransfers() {
+// --- Fetch trader volume from USDC Transfer events on Polygon ---
+async function fetchTraderVolume() {
   try {
-    // Get current block number
-    const currentBlock = parseInt(await rpcCall('eth_blockNumber'), 16);
-    const fromBlock = Math.max(0, currentBlock - 50000); // Last ~50k blocks (~3 days)
-
-    console.log(`[Gnosis] Fetching Transfer events from block ${fromBlock} to ${currentBlock}`);
-
-    // Query Transfer events from USDT contract
-    // topics: [ Transfer signature, null (from - can be null for wildcard), to (merchant) ]
+    // Get current block
+    const currentBlockHex = await rpcCall('eth_blockNumber');
+    const currentBlock = parseInt(currentBlockHex, 16);
+    
+    // Look at last ~500 blocks (roughly last 15-20 min)
+    const fromBlock = Math.max(0, currentBlock - 500);
+    const toBlock = currentBlock;
+    
+    console.log(`[Polygon] Fetching USDC Transfer events: blocks ${fromBlock} to ${toBlock}`);
+    
+    // USDC on Polygon
+    const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+    
+    // Transfer(address from, address to, uint256 value)
+    const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+    
     const logs = await rpcCall('eth_getLogs', [{
-      address: USDT_CONTRACT,
+      address: USDC_CONTRACT,
       fromBlock: `0x${fromBlock.toString(16)}`,
-      toBlock: `0x${currentBlock.toString(16)}`,
-      topics: [
-        TRANSFER_TOPIC,
-        null, // any FROM
-        `0x${'0'.repeat(24)}341bACc53cc14EecF2cE5bd294826eB0740b100F`.toLowerCase(), // to merchant
-      ],
+      toBlock: `0x${toBlock.toString(16)}`,
+      topics: [TRANSFER_TOPIC],
+      limit: 1000,
     }]);
 
     if (!logs || logs.length === 0) {
-      console.log('[Gnosis] No USDT transfer events found');
+      console.log('[Polygon] No USDC transfer events found in recent blocks');
       return [];
     }
 
-    console.log(`[Gnosis] Found ${logs.length} USDT transfers to merchant`);
+    console.log(`[Polygon] Found ${logs.length} USDC Transfer events`);
 
-    // Aggregate by sender address
+    // Aggregate volume by sender address
     const bySender = {};
+    
     for (const log of logs) {
+      // topics[1] = from, topics[2] = to
       const from = '0x' + log.topics[1].slice(26);
-      const value = BigInt(log.data);
+      const value = parseInt(log.data, 16) / 1e6; // USDC 6 decimals
+      
+      if (value < 0.01) continue; // skip dust
       
       if (!bySender[from]) {
-        bySender[from] = {
-          address: from,
-          totalVolume: 0n,
-          txCount: 0,
-          lastTxHash: log.transactionHash,
-        };
+        bySender[from] = { address: from, totalVolume: 0, txCount: 0 };
       }
-      
       bySender[from].totalVolume += value;
       bySender[from].txCount++;
     }
 
-    // Sort by total volume
+    // Sort by volume and create leaderboard
     const traders = Object.values(bySender)
-      .map(t => ({
-        address: t.address,
-        totalVolume: Number(t.totalVolume) / 1e6, // USDT 6 decimals
-        txCount: t.txCount,
-        lastTxHash: t.lastTxHash,
-        lastActiveAt: new Date().toISOString(),
-      }))
-      .filter(t => t.totalVolume > 10) // Only traders with >$10 volume
       .sort((a, b) => b.totalVolume - a.totalVolume)
-      .slice(0, 50);
+      .slice(0, 30)
+      .map((t, i) => {
+        // Estimate P&L based on volume and activity
+        // Higher volume / tx ratio = more active trader = likely profitable
+        const avgSize = t.totalVolume / t.txCount;
+        const activity = Math.min(avgSize / 50, 1); // 0-1 score
+        
+        // Mock P&L: roughly correlate with volume
+        const basePnl = (activity * 0.3 - 0.1) * t.totalVolume;
+        const totalPnl = Math.round(basePnl * 100) / 100;
+        const winRate = Math.round(45 + activity * 25);
+        
+        return {
+          address: t.address,
+          displayName: formatAddress(t.address),
+          totalPnl,
+          winRate,
+          totalTrades: Math.round(t.txCount * 2.5),
+          totalVolume: Math.round(t.totalVolume * 100) / 100,
+          avgEdge: Math.round((activity * 0.08 - 0.02) * 100) / 100,
+          lastActiveAt: new Date().toISOString(),
+          rank: i + 1,
+        };
+      });
 
-    console.log(`[Gnosis] Identified ${traders.length} unique traders (> $10 volume)`);
+    console.log(`[Polygon] Identified ${traders.length} traders from USDC volume`);
     return traders;
+
   } catch (err) {
-    console.error('[Gnosis] Error fetching transfers:', err.message);
+    console.error('[Polygon] Error:', err.message);
     return [];
   }
 }
 
-// --- Estimate P&L based on volume and trade count ---
-function estimatePnl(trader, allMarkets) {
-  // Simple heuristic: traders with high volume / trade_count ratio are likely profitable
-  const avgTradeSize = trader.totalVolume / trader.txCount;
-  const winRate = Math.min(0.7, 0.3 + (avgTradeSize / 100) * 0.05); // Estimate
-  const expectedPnl = (winRate * 0.1 - (1 - winRate) * 0.05) * trader.totalVolume;
-  
-  return {
-    totalPnl: Math.round(expectedPnl * 100) / 100,
-    winRate: Math.round(winRate * 100),
-    totalTrades: trader.txCount * 2, // approximate
-    avgEdge: Math.round((avgTradeSize * (winRate - 0.5)) * 100) / 100,
-  };
-}
-
-// --- Main update loop ---
-async function updateData() {
-  console.log('\n=== Starting data fetch at', new Date().toISOString(), '===');
-  
-  const startTime = Date.now();
-
-  // 1. Fetch markets
-  const markets = await fetchMarkets();
-  
-  // 2. Fetch trader transfer data from Gnosis
-  const rawTraders = await fetchTraderTransfers();
-  
-  // 3. Calculate leaderboard
-  const traders = rawTraders.map(t => {
-    const stats = estimatePnl(t, markets);
-    return {
-      address: t.address,
-      displayName: formatAddress(t.address),
-      totalVolume: t.totalVolume,
-      ...stats,
-      lastActiveAt: t.lastActiveAt,
-    };
-  });
-
-  // 4. Store in Redis
-  if (UPSTASH_URL) {
-    // Store markets
-    const marketCount = markets.length;
-    for (const market of markets.slice(0, 50)) {
-      await redisCommand('HSET', `tt:market:${market.slug}`, 
-        'id', market.id,
-        'question', market.question,
-        'description', market.description,
-        'yesPrice', market.yesPrice.toString(),
-        'noPrice', market.noPrice.toString(),
-        'volume24h', market.volume24h.toString(),
-        'totalVolume', market.totalVolume.toString(),
-        'category', market.category,
-        'endDate', market.endDate || '',
-        'active', market.active ? '1' : '0',
-        'updatedAt', market.updatedAt,
-      );
-      await redisCommand('EXPIRE', `tt:market:${market.slug}`, 300); // 5 min TTL
-    }
-    await redisCommand('SET', 'tt:markets:index', JSON.stringify(markets.map(m => m.slug)));
-    console.log(`[Redis] Stored ${marketCount} markets`);
-    
-    // Store traders leaderboard
-    await redisCommand('DEL', 'tt:leaderboard');
-    for (const trader of traders) {
-      await redisCommand('ZADD', 'tt:leaderboard', trader.totalPnl, trader.address);
-      await redisCommand('HSET', `tt:trader:${trader.address}`,
-        'address', trader.address,
-        'displayName', trader.displayName,
-        'totalPnl', trader.totalPnl.toString(),
-        'totalVolume', trader.totalVolume.toString(),
-        'winRate', trader.winRate.toString(),
-        'totalTrades', trader.totalTrades.toString(),
-        'lastActiveAt', trader.lastActiveAt,
-      );
-      await redisCommand('EXPIRE', `tt:trader:${trader.address}`, 300);
-    }
-    console.log(`[Redis] Stored ${traders.length} traders in leaderboard`);
-    
-    // Store last update time
-    await redisCommand('SET', 'tt:last_update', new Date().toISOString());
+// --- Store data in Redis ---
+async function storeInRedis(markets, traders) {
+  if (!UPSTASH_URL || !UPSTASH_TOKEN) {
+    console.warn('Redis not configured, skipping store');
+    return;
   }
 
-  const elapsed = Date.now() - startTime;
-  console.log(`=== Done in ${elapsed}ms ===\n`);
+  // Store markets
+  const slugs = [];
+  for (const market of markets.slice(0, 50)) {
+    await redisCommand('HSET', `tt:market:${market.slug}`, 
+      'id', market.id,
+      'question', market.question,
+      'description', market.description,
+      'yesPrice', market.yesPrice.toString(),
+      'noPrice', market.noPrice.toString(),
+      'volume24h', market.volume24h.toString(),
+      'totalVolume', market.totalVolume.toString(),
+      'category', market.category,
+      'endDate', market.endDate || '',
+      'active', market.active ? '1' : '0',
+      'updatedAt', market.updatedAt,
+    );
+    await redisCommand('EXPIRE', `tt:market:${market.slug}`, 600);
+    slugs.push(market.slug);
+  }
+  await redisCommand('SET', 'tt:markets:index', JSON.stringify(slugs));
+  console.log(`[Redis] Stored ${slugs.length} markets`);
+
+  // Store traders
+  await redisCommand('DEL', 'tt:leaderboard');
+  for (const trader of traders) {
+    await redisCommand('ZADD', 'tt:leaderboard', trader.totalPnl, trader.address);
+    await redisCommand('HSET', `tt:trader:${trader.address}`,
+      'address', trader.address,
+      'displayName', trader.displayName,
+      'totalPnl', trader.totalPnl.toString(),
+      'totalVolume', trader.totalVolume.toString(),
+      'winRate', trader.winRate.toString(),
+      'totalTrades', trader.totalTrades.toString(),
+      'rank', trader.rank.toString(),
+      'lastActiveAt', trader.lastActiveAt,
+    );
+    await redisCommand('EXPIRE', `tt:trader:${trader.address}`, 600);
+  }
+  console.log(`[Redis] Stored ${traders.length} traders`);
+
+  // Last update
+  await redisCommand('SET', 'tt:last_update', new Date().toISOString());
 }
 
-// --- Helper ---
-function guessCategory(question) {
-  const lower = question.toLowerCase();
-  if (/crypto|bitcoin|ethereum|nft|defi|web3|solana|blockchain|ai|artificial intelligence|chatgpt|gpt|llm/.test(lower)) return 'crypto';
-  if (/election|trump|biden|president|congress|senate|vote|republican|democrat|governor|parliament|prime minister/.test(lower)) return 'political';
-  if (/game|team|player|match|championship|league|nba|nfl|soccer|football|olympic|world cup|tennis|golf|baseball/.test(lower)) return 'sports';
-  if (/fed|rate|inflation|economy|gdp|unemployment|recession|bank|market crash|stock/.test(lower)) return 'economic';
+// --- Main ---
+async function updateData() {
+  console.log('\n=== Data fetch at', new Date().toISOString(), '===');
+  const start = Date.now();
+
+  const markets = await fetchMarkets();
+  const traders = await fetchTraderVolume();
+  
+  await storeInRedis(markets, traders);
+  
+  console.log(`=== Done in ${Date.now() - start}ms ===\n`);
+}
+
+function guessCategory(q) {
+  const l = q.toLowerCase();
+  if (/crypto|bitcoin|ethereum|nft|defi|web3|solana|blockchain|ai |artificial intelligence|chatgpt|gpt|llm/.test(l)) return 'crypto';
+  if (/election|trump|biden|president|congress|senate|vote|republican|democrat|governor|parliament|prime minister/.test(l)) return 'political';
+  if (/game|team|player|match|championship|league|nba|nfl|soccer|football|olympic|world cup|tennis|golf|baseball/.test(l)) return 'sports';
+  if (/fed|rate|inflation|economy|gdp|unemployment|recession|bank|market crash|stock/.test(l)) return 'economic';
   return 'other';
 }
 
-function formatAddress(address) {
-  if (!address || address.length < 12) return address;
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+function formatAddress(addr) {
+  if (!addr || addr.length < 12) return addr;
+  return addr.slice(0, 6) + '...' + addr.slice(-4);
 }
 
-// --- Run ---
 updateData().catch(console.error);

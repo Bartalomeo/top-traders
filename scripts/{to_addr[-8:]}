@@ -1,0 +1,4 @@
+  File "<string>", line 7
+    from_addr=0x+e[topics][1][26:]
+               ^
+SyntaxError: invalid hexadecimal literal
