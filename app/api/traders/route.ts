@@ -46,14 +46,22 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
+      // HGETALL returns flat array [key, value, key, value, ...]
+      const traderData: Record<string, string> = {};
+      if (Array.isArray(data)) {
+        for (let j = 0; j < data.length; j += 2) {
+          traderData[data[j]] = data[j + 1];
+        }
+      }
+
       traders.push({
         address,
-        displayName: data.displayName || formatAddress(address),
-        totalPnl: parseFloat(data.totalPnl || '0'),
-        totalVolume: parseFloat(data.totalVolume || '0'),
-        winRate: parseInt(data.winRate || '50'),
-        totalTrades: parseInt(data.totalTrades || '0'),
-        lastActiveAt: data.lastActiveAt || new Date().toISOString(),
+        displayName: traderData.displayName || formatAddress(address),
+        totalPnl: parseFloat(traderData.totalPnl || '0'),
+        totalVolume: parseFloat(traderData.totalVolume || '0'),
+        winRate: parseInt(traderData.winRate || '50'),
+        totalTrades: parseInt(traderData.totalTrades || '0'),
+        lastActiveAt: traderData.lastActiveAt || new Date().toISOString(),
       });
     }
 
