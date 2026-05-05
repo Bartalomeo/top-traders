@@ -1,21 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/auth';
 import { getPayment, updatePaymentStatus, getUser, setUser } from '@/lib/redis';
-
-// In production, use proper blockchain RPC calls
-// For demo, we simulate verification
-async function verifyTransaction(txHash: string, expectedAmount: string, chain: string): Promise<boolean> {
-  // Simulate verification delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
-
-  // In production, make actual RPC call:
-  // const provider = new ethers.providers.JsonRpcProvider(getRPCUrl(chain));
-  // const tx = await provider.getTransactionReceipt(txHash);
-  // Check: tx.to === MERCHANT_WALLET, tx.value === expectedAmount, tx.confirmations > 0
-
-  // For demo: any valid-looking tx hash works
-  return txHash.startsWith('0x') && txHash.length === 66;
-}
+import { verifyUSDTTransfer } from '@/lib/gnosis';
 
 export async function GET(req: NextRequest) {
   try {
@@ -38,10 +23,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: 'expired' });
     }
 
-    // Verify transaction
-    const isValid = await verifyTransaction(txHash, payment.amount, payment.chain);
+    // Already confirmed
+    if (payment.status === 'confirmed') {
+      return NextResponse.json({ status: 'confirmed' });
+    }
 
-    if (isValid) {
+    // Verify the on-chain transaction
+    const result = await verifyUSDTTransfer(txHash, payment.amount, payment.chain);
+
+    if (result.valid) {
       await updatePaymentStatus(ref, 'confirmed', txHash);
 
       // Upgrade user subscription
@@ -58,12 +48,17 @@ export async function GET(req: NextRequest) {
         await setUser(payment.userId, user);
       }
 
-      return NextResponse.json({ status: 'confirmed' });
+      return NextResponse.json({
+        status: 'confirmed',
+        explorerUrl: result.explorerUrl,
+        confirmations: result.confirmations,
+      });
     }
 
     return NextResponse.json({
       status: 'pending',
-      error: 'Transaction not found or not confirmed yet'
+      error: result.error || 'Transaction not verified',
+      confirmations: result.confirmations,
     });
   } catch (err: any) {
     console.error('Verify error:', err);

@@ -11,17 +11,14 @@ import {
   Shield,
   ArrowUpRight,
   ChevronRight,
-  Star,
-  ExternalLink,
   Search,
-  Filter,
   Trophy,
   Crown,
-  TrendingDown,
   Activity,
   Bookmark,
+  Loader2,
 } from 'lucide-react';
-import { getMockTraders, getMockMarkets, formatVolume, CATEGORY_COLORS, CATEGORY_LABELS } from '@/lib/polymarket';
+import { CATEGORY_COLORS, CATEGORY_LABELS, formatVolume } from '@/lib/polymarket-api';
 
 const fadeUp: Variants = {
   hidden: { opacity: 0, y: 30 },
@@ -234,13 +231,17 @@ export default function HomePage() {
   const [markets, setMarkets] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'pnl' | 'winRate' | 'trades'>('pnl');
-  const [category, setCategory] = useState('all');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const mockTraders = getMockTraders();
-    const mockMarkets = getMockMarkets();
-    setTraders(mockTraders);
-    setMarkets(mockMarkets);
+    Promise.all([
+      fetch('/api/traders?limit=10').then(r => r.json()).catch(() => ({ traders: [] })),
+      fetch('/api/markets').then(r => r.json()).catch(() => ({ hot: [] })),
+    ]).then(([tradersData, marketsData]) => {
+      setTraders(tradersData.traders || []);
+      setMarkets(marketsData.hot || []);
+      setLoading(false);
+    });
   }, []);
 
   const filteredTraders = traders
@@ -439,15 +440,25 @@ export default function HomePage() {
             </div>
           </div>
 
-          <motion.div
-            variants={stagger}
-            initial="hidden"
-            animate="visible"
-            className="space-y-4"
-          >
-            {filteredTraders.map((trader, i) => (
+        <motion.div
+          variants={stagger}
+          initial="hidden"
+          animate="visible"
+          className="space-y-4"
+        >
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+            </div>
+          ) : filteredTraders.length === 0 ? (
+            <div className="text-center py-16 text-zinc-500">
+              No traders found. Real data from Gamma API loading...
+            </div>
+          ) : (
+            filteredTraders.map((trader, i) => (
               <TraderRow key={trader.address} trader={trader} index={i} />
-            ))}
+            ))
+          )}
           </motion.div>
         </section>
 

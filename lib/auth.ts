@@ -1,9 +1,11 @@
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import { getUser, setUser } from '@/lib/redis';
 import type { UserStore } from '@/lib/redis';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'tt-secret-change-me-in-vercel';
 const SESSION_DURATION = 7 * 24 * 60 * 60; // 7 days
+const BCRYPT_ROUNDS = 12;
 
 export interface SessionPayload {
   userId: string;
@@ -31,6 +33,27 @@ export function parseCookies(cookieHeader: string): Record<string, string> {
     if (k) cookies[k] = v.join('=');
   });
   return cookies;
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  // Migration: if hash looks like plaintext (not a bcrypt hash), verify directly
+  if (!hash.startsWith('$2')) {
+    // Plaintext fallback for migration — accept if exact match
+    return password === hash;
+  }
+  return bcrypt.compare(password, hash);
+}
+
+export async function migratePasswordIfNeeded(user: UserStore, password: string): Promise<string> {
+  if (!user.passwordHash || !user.passwordHash.startsWith('$2')) {
+    // Plaintext found — migrate to bcrypt
+    return hashPassword(password);
+  }
+  return user.passwordHash;
 }
 
 export function getSessionFromRequest(request: Request): Promise<{ user: UserStore; token: string } | null> {

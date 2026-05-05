@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByEmail, setUser, setEmailIndex, type UserStore } from '@/lib/redis';
-import { createToken, makeSessionCookie } from '@/lib/auth';
+import { getUserByEmail, setUser, type UserStore } from '@/lib/redis';
+import { createToken, makeSessionCookie, verifyPassword, migratePasswordIfNeeded } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,9 +16,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
-    // Simple password check (in production, use bcrypt)
-    if (user.passwordHash !== password) {
+    // Verify password with bcrypt
+    if (!user.passwordHash) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    }
+
+    const valid = await verifyPassword(password, user.passwordHash);
+    if (!valid) {
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+    }
+
+    // Migrate plaintext to bcrypt if needed
+    if (!user.passwordHash.startsWith('$2')) {
+      user.passwordHash = await migratePasswordIfNeeded(user, password);
+      await setUser(user.userId, user);
     }
 
     // Create token

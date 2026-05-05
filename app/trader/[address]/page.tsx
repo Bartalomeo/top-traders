@@ -21,7 +21,7 @@ import {
   Loader2,
   Star,
 } from 'lucide-react';
-import { getMockTraders, formatVolume, CATEGORY_COLORS } from '@/lib/polymarket';
+import { formatVolume, CATEGORY_COLORS } from '@/lib/polymarket-api';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
@@ -175,10 +175,14 @@ export default function TraderPage() {
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('all');
 
   useEffect(() => {
-    const traders = getMockTraders();
-    const found = traders.find(t => t.address === address);
-    setTrader(found || null);
-    setLoading(false);
+    fetch('/api/traders?limit=50')
+      .then(r => r.json())
+      .then(data => {
+        const found = (data.traders || []).find((t: any) => t.address === address);
+        setTrader(found || null);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [address]);
 
   if (loading) {

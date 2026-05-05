@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserByEmail, setUser, setEmailIndex, getUser, type UserStore } from '@/lib/redis';
-import { createToken, makeSessionCookie } from '@/lib/auth';
+import { createToken, makeSessionCookie, hashPassword } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,13 +20,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email already registered' }, { status: 409 });
     }
 
-    // Create user
+    // Create user with bcrypt hash
     const userId = `u_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const passwordHash = await hashPassword(password);
+
     const user: UserStore = {
       userId,
       username,
       email: email.toLowerCase(),
-      passwordHash: password, // In production, use bcrypt
+      passwordHash,
       subscribed: false,
       addedAt: new Date().toISOString(),
       subscription: {

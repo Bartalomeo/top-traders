@@ -23,7 +23,12 @@ import {
   Share2,
   Loader2,
 } from 'lucide-react';
-import { getMockMarkets, getMockTraders, formatVolume, CATEGORY_COLORS, CATEGORY_LABELS } from '@/lib/polymarket';
+import {
+  getMarketBySlug,
+  formatVolume,
+  CATEGORY_COLORS,
+  CATEGORY_LABELS,
+} from '@/lib/polymarket-api';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 20 },
@@ -34,21 +39,20 @@ export default function MarketPage() {
   const params = useParams();
   const slug = params.slug as string;
   const [market, setMarket] = useState<any>(null);
-  const [traders, setTraders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'wiki' | 'sentiment' | 'traders'>('wiki');
   const [wikiEditMode, setWikiEditMode] = useState(false);
   const [sentimentScore, setSentimentScore] = useState({ twitter: 0.72, volume: 12450 });
 
   useEffect(() => {
-    const allMarkets = getMockMarkets();
-    const allTraders = getMockTraders();
-    const found = allMarkets.find(m => m.slug === slug);
-    setMarket(found || null);
-    setTraders(allTraders.filter(t =>
-      found?.topTraders?.some((name: string) => t.displayName === name)
-    ));
-    setLoading(false);
+    fetch('/api/markets')
+      .then(r => r.json())
+      .then(data => {
+        const found = (data.markets || []).find((m: any) => m.slug === slug);
+        setMarket(found || null);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [slug]);
 
   if (loading) {
@@ -356,31 +360,13 @@ export default function MarketPage() {
         {/* Traders Tab */}
         {activeTab === 'traders' && (
           <motion.div initial="hidden" animate="visible" variants={fadeUp}>
-            <div className="space-y-4">
-              {traders.length > 0 ? traders.map((trader) => (
-                <Link key={trader.address} href={`/trader/${trader.address}`}>
-                  <div className="glass-card rounded-xl p-4 border border-zinc-800/60 hover:border-violet-500/40 transition-all cursor-pointer flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 flex items-center justify-center text-lg font-bold">
-                      {trader.displayName[0]}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold">{trader.displayName}</div>
-                      <div className="text-xs text-zinc-500">{trader.totalTrades} trades • {trader.winRate}% win rate</div>
-                    </div>
-                    <div className="text-right">
-                      <div className={`font-bold ${trader.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        +{formatVolume(trader.totalPnl)}
-                      </div>
-                      <div className="text-xs text-zinc-500">Total P&L</div>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-zinc-600" />
-                  </div>
-                </Link>
-              )) : (
-                <div className="text-center py-12 text-zinc-500">
-                  No trader data available for this market
-                </div>
-              )}
+            <div className="glass-card rounded-2xl p-8 border border-zinc-800/60 text-center">
+              <Users className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Trader Tracking Coming Soon</h3>
+              <p className="text-sm text-zinc-500 max-w-sm mx-auto">
+                We&apos;re building the ability to see which traders have positions on each market.
+                Check back in the next update.
+              </p>
             </div>
           </motion.div>
         )}
