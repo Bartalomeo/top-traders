@@ -11,7 +11,16 @@ async function getMarketsFromRedis(): Promise<any[]> {
     const data = await redis.get<string>('tt:markets:index');
     if (!data) return [];
     
-    const slugs: string[] = typeof data === 'string' ? JSON.parse(data) : [];
+    // Handle JSON string stored directly
+    let slugs: string[];
+    if (typeof data === 'string') {
+      try { slugs = JSON.parse(data); }
+      catch { slugs = []; }
+    } else if (Array.isArray(data)) {
+      slugs = data;
+    } else {
+      slugs = [];
+    }
     if (slugs.length === 0) return [];
 
     const markets = [];
