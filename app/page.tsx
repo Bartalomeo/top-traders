@@ -154,9 +154,8 @@ function TraderRow({ trader, index }: { trader: any; index: number }) {
               </div>
             </div>
           )}
-        </div>
-      </Link>
-    </motion.div>
+        </Link>
+      </motion.div>
   );
 }
 
