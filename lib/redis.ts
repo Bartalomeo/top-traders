@@ -52,7 +52,7 @@ export async function setEmailIndex(email: string, userId: string): Promise<void
 
 // --- Leaderboard ---
 export async function getLeaderboard(limit: number = 10): Promise<string[]> {
-  return redis.zrevrange(leaderboardKey(), 0, limit - 1);
+  return redis.zrange(leaderboardKey(), 0, limit - 1, { rev: true });
 }
 
 export async function updateTraderScore(address: string, pnl: number): Promise<void> {

@@ -154,8 +154,9 @@ function TraderRow({ trader, index }: { trader: any; index: number }) {
               </div>
             </div>
           )}
-        </Link>
-      </motion.div>
+        </div>
+      </Link>
+    </motion.div>
   );
 }
 
@@ -203,8 +204,8 @@ function MarketCard({ market }: { market: any }) {
             />
           </div>
           <div className="flex justify-between text-xs text-zinc-600 mt-1">
-            <span>NO {(1 - market.currentPrice) * 100.toFixed(0)}%</span>
-            <span>YES {market.currentPrice * 100.toFixed(0)}%</span>
+            <span>NO {((1 - market.currentPrice) * 100).toFixed(0)}%</span>
+            <span>YES {(market.currentPrice * 100).toFixed(0)}%</span>
           </div>
 
           {market.topTraders && market.topTraders.length > 0 && (

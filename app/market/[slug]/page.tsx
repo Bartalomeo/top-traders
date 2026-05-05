@@ -19,7 +19,7 @@ import {
   ThumbsDown,
   Edit3,
   MessageSquare,
-  Twitter,
+  X,
   Share2,
   Loader2,
 } from 'lucide-react';
@@ -195,7 +195,7 @@ export default function MarketPage() {
         <div className="flex gap-1 mb-6 bg-zinc-900/60 p-1 rounded-xl w-fit">
           {[
             { id: 'wiki', label: 'Wiki', icon: Edit3 },
-            { id: 'sentiment', label: 'Sentiment', icon: Twitter },
+            { id: 'sentiment', label: 'Sentiment', icon: X },
             { id: 'traders', label: 'Top Traders', icon: Users },
           ].map((tab) => (
             <button
@@ -297,11 +297,11 @@ export default function MarketPage() {
         {activeTab === 'sentiment' && (
           <motion.div initial="hidden" animate="visible" variants={fadeUp} className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Twitter Sentiment */}
+              {/* X Sentiment */}
               <div className="glass-card rounded-2xl p-6 border border-zinc-800/60">
                 <div className="flex items-center gap-2 mb-4">
-                  <Twitter className="w-5 h-5 text-[#1DA1F2]" />
-                  <h3 className="text-lg font-semibold">Twitter/X Sentiment</h3>
+                  <X className="w-5 h-5 text-[#1DA1F2]" />
+                  <h3 className="text-lg font-semibold">X/Twitter Sentiment</h3>
                 </div>
                 <div className="text-center py-6">
                   <div className="text-5xl font-bold text-emerald-400 mb-2">
