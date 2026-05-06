@@ -1,20 +1,35 @@
-import { NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/auth';
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyToken, parseCookies } from '@/lib/auth';
+import { getUser } from '@/lib/redis';
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
-    const session = await getSessionFromRequest(req);
-    if (!session) {
-      return NextResponse.json({ userId: null });
+    const cookieHeader = req.headers.get('cookie') || '';
+    const cookies = parseCookies(cookieHeader);
+    const token = cookies['tt_session'];
+
+    if (!token) {
+      return NextResponse.json({});
     }
+
+    const payload = verifyToken(token);
+    if (!payload) {
+      return NextResponse.json({});
+    }
+
+    const user = await getUser(payload.userId);
+    if (!user) {
+      return NextResponse.json({});
+    }
+
     return NextResponse.json({
-      userId: session.user.userId,
-      username: session.user.username,
-      email: session.user.email,
-      subscribed: session.user.subscribed,
-      subscription: session.user.subscription,
+      userId: user.userId,
+      username: user.username,
+      email: user.email,
+      subscribed: user.subscribed,
+      subscription: user.subscription,
     });
-  } catch (err: any) {
-    return NextResponse.json({ userId: null });
+  } catch {
+    return NextResponse.json({});
   }
 }

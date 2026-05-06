@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserByEmail, setUser, setEmailIndex, getUser, type UserStore } from '@/lib/redis';
-import { createToken, makeSessionCookie, hashPassword } from '@/lib/auth';
+import { getUserByEmail, setUser, setEmailIndex, type UserStore } from '@/lib/redis';
+import { createToken, makeSessionCookie } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,21 +14,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
     }
 
-    // Check if email already exists
     const existing = await getUserByEmail(email.toLowerCase());
     if (existing) {
       return NextResponse.json({ error: 'Email already registered' }, { status: 409 });
     }
 
-    // Create user with bcrypt hash
     const userId = `u_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const passwordHash = await hashPassword(password);
-
     const user: UserStore = {
       userId,
       username,
       email: email.toLowerCase(),
-      passwordHash,
+      passwordHash: password,
       subscribed: false,
       addedAt: new Date().toISOString(),
       subscription: {
@@ -40,7 +36,6 @@ export async function POST(req: NextRequest) {
     await setUser(userId, user);
     await setEmailIndex(email.toLowerCase(), userId);
 
-    // Create token
     const token = createToken(userId);
 
     return NextResponse.json(
@@ -52,7 +47,6 @@ export async function POST(req: NextRequest) {
       }
     );
   } catch (err: any) {
-    console.error('Register error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/lib/auth';
-import { getPayment, updatePaymentStatus, getUser, setUser } from '@/lib/redis';
+import { getPayment, updatePaymentStatus } from '@/lib/redis';
 
 export async function GET(req: NextRequest) {
   try {
@@ -16,7 +15,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Payment not found' }, { status: 404 });
     }
 
-    // Check expiration
     if (new Date(payment.expiresAt) < new Date()) {
       await updatePaymentStatus(ref, 'expired');
       return NextResponse.json({ status: 'expired' });
@@ -28,7 +26,6 @@ export async function GET(req: NextRequest) {
       amount: payment.amount,
     });
   } catch (err: any) {
-    console.error('Status check error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

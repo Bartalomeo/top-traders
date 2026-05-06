@@ -3,6 +3,20 @@ import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
 
+// Use REST API directly for ZREVRANGE since Upstash SDK zrevrange has issues
+async function zrevrange(key: string, start: number, stop: number): Promise<string[]> {
+  const res = await fetch(process.env.UPSTASH_REDIS_REST_URL!, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + process.env.UPSTASH_REDIS_REST_TOKEN!,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(['ZREVRANGE', key, start, stop, 'WITHSCORES']),
+  });
+  const data = await res.json();
+  return data.result || [];
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -10,8 +24,8 @@ export async function GET(req: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '25'), 100);
 
     const lbKey = `tt:leaderboard:${period}`;
-    // ZREVRANGE WITHSCORES: flat array [addr, score, addr, score, ...]
-    const raw: string[] = await redis.zrange(lbKey, 0, limit - 1, { withScores: true });
+    // ZREVRANGE via REST API for descending order (highest PnL first)
+    const raw: string[] = await zrevrange(lbKey, 0, limit - 1);
 
     const traders = [];
     for (let i = 0; i < raw.length; i += 2) {

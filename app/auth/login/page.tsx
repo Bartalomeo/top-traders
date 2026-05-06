@@ -3,14 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  User,
-  Mail,
-  Lock,
-  ArrowRight,
-  Loader2,
-  CheckCircle2,
-} from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Loader2, Mail, Lock, User, ArrowRight, CheckCircle2 } from 'lucide-react';
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -73,7 +72,11 @@ export default function LoginPage() {
           style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
       </div>
 
-      <div className="w-full max-w-md relative"
+      <motion.div
+        initial="hidden"
+        animate="visible"
+        variants={fadeUp}
+        className="w-full max-w-md relative"
       >
         {/* Logo */}
         <div className="text-center mb-8">
@@ -168,9 +171,13 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm"
+              >
                 {error}
-              </div>
+              </motion.div>
             )}
 
             <button
@@ -224,7 +231,7 @@ export default function LoginPage() {
         <p className="text-center text-xs text-zinc-600 mt-6">
           By continuing, you agree to our Terms of Service and Privacy Policy.
         </p>
-      </div>
+      </motion.div>
     </div>
   );
 }
