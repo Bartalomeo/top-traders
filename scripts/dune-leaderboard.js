@@ -299,7 +299,8 @@ function enrichPositionsWithGamma(positions, gamma) {
 
       if (gInfo) {
         p.question = gInfo.question || p.assetId.slice(0, 12);
-        p.slug = gInfo.slug || 'market';
+        // Polymarket URL: strip trailing number from slug
+        p.slug = (gInfo.slug || 'market').replace(/-\d+$/, '');
         p.currentPrice = p.side === 'YES' ? gInfo.yesPrice : gInfo.noPrice;
       } else {
         p.question = 'Market ' + p.assetId.slice(0, 12);

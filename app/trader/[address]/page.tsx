@@ -23,7 +23,8 @@ function PositionRow({ position }: { position: any }) {
   const currentPrice = parseFloat(position.currentPrice || '0.5');
   const avgCost = parseFloat(position.avgCost || '0');
   const marketValue = parseFloat(position.marketValue || '0');
-  const slug = position.slug || '';
+  // Polymarket URL: strip trailing number (e.g. "russia-ukraine-ceasefire-before-gta-vi-554" -> "russia-ukraine-ceasefire-before-gta-vi")
+  const slug = (position.slug || '').replace(/-\d+$/, '');
   const polymarketUrl = slug ? `https://polymarket.com/event/${slug}` : null;
 
   return (
