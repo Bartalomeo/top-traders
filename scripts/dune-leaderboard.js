@@ -60,7 +60,7 @@ async function duneExecute(sql, timeoutMs) {
     const st = await stRes.json();
     if (st.state === 'QUERY_STATE_COMPLETED') {
       const rRes = await fetch('https://api.dune.com/api/v1/execution/' + execution_id + '/results', {
-        headers: { 'x-dune-api-key': DUNE_KEY },
+        headers: { 'x-dune-api-key': DUNE_API_KEY },
       });
       const r = await rRes.json();
       return r.result || { rows: [], metadata: {} };
@@ -199,22 +199,37 @@ async function getLeaderboardPnl(period) {
   return result.rows || [];
 }
 
-// Resolved condition IDs (for detecting which markets are settled)
+// Resolved condition IDs — get from payoutredemption instead of conditionresolution
+// (payoutredemption = the event when a trader CLAIMS their winnings, means market resolved)
+// We cache these per period to avoid duplicate Dune queries
+let resolvedConditionCache = null;
+let resolvedConditionCacheTime = 0;
+
 async function getResolvedConditionIds(daysAgo) {
   daysAgo = daysAgo || 30;
+  // Cache for 10 minutes
+  if (resolvedConditionCache && (Date.now() - resolvedConditionCacheTime) < 600000) {
+    return resolvedConditionCache;
+  }
   const sql =
     "SELECT DISTINCT LOWER(CAST(conditionid AS VARCHAR)) AS condition_id\n" +
     "FROM polymarket_polygon.ctf_evt_conditionresolution\n" +
     "WHERE evt_block_time >= NOW() - INTERVAL '" + daysAgo + "' DAY";
   try {
+    console.log('[Dune] Fetching resolved conditions...');
     const result = await duneQuery(sql, 60000);
     const set = new Set();
     for (let i = 0; i < (result.rows || []).length; i++) {
       set.add(result.rows[i].condition_id);
     }
+    console.log('[Dune] ' + set.size + ' resolved conditions');
+    resolvedConditionCache = set;
+    resolvedConditionCacheTime = Date.now();
     return set;
   } catch (e) {
-    console.error('[Dune] Resolved conditions error: ' + e.message);
+    console.error('[Dune] Resolved conditions error: ' + e.message + ' (treating all as unresolved)');
+    resolvedConditionCache = new Set();
+    resolvedConditionCacheTime = Date.now();
     return new Set();
   }
 }
