@@ -23,6 +23,8 @@ function PositionRow({ position }: { position: any }) {
   const currentPrice = parseFloat(position.currentPrice || '0.5');
   const avgCost = parseFloat(position.avgCost || '0');
   const marketValue = parseFloat(position.marketValue || '0');
+  const slug = position.slug || '';
+  const polymarketUrl = slug ? `https://polymarket.com/event/${slug}` : null;
 
   return (
     <div className="glass-card rounded-xl p-4 border border-zinc-800/60 hover:border-violet-500/30 transition-all">
@@ -42,11 +44,27 @@ function PositionRow({ position }: { position: any }) {
                 Resolved
               </span>
             )}
+            {polymarketUrl && (
+              <a
+                href={polymarketUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium bg-violet-500/10 border border-violet-500/20 text-violet-400 hover:bg-violet-500/20 transition-colors"
+                onClick={e => e.stopPropagation()}
+              >
+                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/>
+                  <line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+                View on Polymarket
+              </a>
+            )}
           </div>
 
           {/* Market question */}
           <p className="text-sm text-zinc-300 mb-3 line-clamp-2">
-            {position.question || position.slug || 'Unknown market'}
+            {position.question || slug || 'Unknown market'}
           </p>
 
           {/* Stats row */}
