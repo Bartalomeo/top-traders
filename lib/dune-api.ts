@@ -27,11 +27,11 @@ export interface DuneExecutionStatus {
   error?: { type: string; message: string };
 }
 
-/**
- * Execute a SQL query and wait for results
- */
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function executeQuery(sql: string, timeoutMs = 60000): Promise<DuneQueryResult> {
-  // Step 1: Execute
   const execRes = await fetch(`${DUNE_BASE_URL}/api/v1/sql/execute`, {
     method: 'POST',
     headers: {
@@ -47,9 +47,8 @@ export async function executeQuery(sql: string, timeoutMs = 60000): Promise<Dune
   }
 
   const { execution_id } = await execRes.json();
-
-  // Step 2: Poll for completion
   const startTime = Date.now();
+
   while (Date.now() - startTime < timeoutMs) {
     await sleep(2000);
 
@@ -61,7 +60,6 @@ export async function executeQuery(sql: string, timeoutMs = 60000): Promise<Dune
     const status: DuneExecutionStatus = await statusRes.json();
 
     if (status.state === 'QUERY_STATE_COMPLETED') {
-      // Step 3: Get results
       const resultsRes = await fetch(`${DUNE_BASE_URL}/api/v1/execution/${execution_id}/results`, {
         headers: { 'x-dune-api-key': DUNE_API_KEY },
       });
@@ -70,7 +68,10 @@ export async function executeQuery(sql: string, timeoutMs = 60000): Promise<Dune
       const data = await resultsRes.json();
       return {
         rows: data.result?.rows || [],
-        metadata: data.result?.metadata || { column_names: [], column_types: [], row_count: 0, total_result_set_bytes: 0, execution_time_millis: 0 },
+        metadata: data.result?.metadata || {
+          column_names: [], column_types: [], row_count: 0,
+          total_result_set_bytes: 0, execution_time_millis: 0,
+        },
       };
     }
 
@@ -78,142 +79,286 @@ export async function executeQuery(sql: string, timeoutMs = 60000): Promise<Dune
       throw new Error(`Dune query failed: ${status.error?.message || 'Unknown error'}`);
     }
 
-    // PENDING or EXECUTING — keep waiting
-    console.log(`[Dune] Query ${execution_id} status: ${status.state}`);
+    console.log(`[Dune] Query ${execution_id}: ${status.state}`);
   }
 
   throw new Error(`Dune query timeout after ${timeoutMs}ms`);
 }
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// ─── P&L Types ─────────────────────────────────────────────────────────────
+
+export interface TraderPnl {
+  trader: string;
+  realized_pnl: number;   // from ctf_evt_payoutredemption (actual USDC claims)
+  unrealized_pnl: number; // from open positions × current price
+  total_pnl: number;      // realized + unrealized
+  num_settlements: number;
+  num_open_positions: number;
 }
 
-// ─── Polymarket Queries ────────────────────────────────────────────────────────
+export interface OpenPosition {
+  assetId: string;
+  conditionId: string;
+  side: 'YES' | 'NO';
+  shares: number;        // net position in shares
+  avgCost: number;       // avg USDC per share paid
+  currentPrice: number;  // current price from Gamma
+  marketValue: number;    // shares × currentPrice
+  unrealizedPnl: number;  // marketValue - (shares × avgCost)
+  question: string;
+  slug: string;
+  isResolved: boolean;
+}
 
-/**
- * Get top 25 traders by P&L for a given time period
- */
-export async function getTopTradersByPnl(
+// ─── Realized P&L: ctf_evt_payoutredemption ─────────────────────────────────
+
+export async function getTopTradersRealizedPnl(
   period: '30d' | '90d' | '365d',
   limit = 25
 ): Promise<Array<{
   trader: string;
-  total_volume: number;
-  num_trades: number;
-  approx_pnl: number;
+  realized_pnl: number;
+  num_claims: number;
 }>> {
-  const intervalMap = {
-    '30d': '30 DAY',
-    '90d': '90 DAY',
-    '365d': '365 DAY',
+  const daysMap: Record<string, string> = {
+    '30d': '30',
+    '90d': '90',
+    '365d': '365',
   };
 
   const sql = `
     SELECT
-      LOWER(HEX(takerordermaker)) AS trader,
-      SUM(CAST(makeramountfilled AS DOUBLE) / 1e6) AS total_volume,
-      COUNT(*) AS num_trades,
-      SUM(
-        (CAST(takeramountfilled AS DOUBLE) / 1e6) -
-        (CAST(makeramountfilled AS DOUBLE) / 1e6)
-      ) AS approx_pnl
-    FROM polymarket_polygon.ctfexchange_evt_ordersmatched
-    WHERE evt_block_time >= NOW() - INTERVAL '${intervalMap[period]}'
-    GROUP BY takerordermaker
-    ORDER BY approx_pnl DESC
+      LOWER(CAST(redeemer AS VARCHAR)) AS trader,
+      SUM(CAST(payout AS DOUBLE) / 1e6) AS realized_pnl,
+      COUNT(*) AS num_claims
+    FROM polymarket_polygon.ctf_evt_payoutredemption
+    WHERE evt_block_time >= NOW() - INTERVAL '${daysMap[period]}' DAY
+    GROUP BY LOWER(CAST(redeemer AS VARCHAR))
+    ORDER BY realized_pnl DESC
     LIMIT ${limit}
   `;
 
-  console.log(`[Dune] Fetching top traders (${period})...`);
+  console.log(`[Dune] Realized P&L top traders (${period})...`);
   const result = await executeQuery(sql);
   console.log(`[Dune] Got ${result.rows.length} traders in ${result.metadata.execution_time_millis}ms`);
   return result.rows;
 }
 
-/**
- * Get all trades for specific traders (for positions + history)
- */
-export async function getTradersTrades(
-  traderAddresses: string[],
-  period: '30d' | '90d' | '365d'
-): Promise<Array<{
+// ─── Open Positions: ctfexchange_evt_ordersmatched ─────────────────────────
+
+export interface TradeRaw {
   trader: string;
   asset_id: string;
-  evt_block_time: string;
-  evt_tx_hash: string;
-  volume: number;
+  maker_amount: number;
   taker_amount: number;
   side: 'YES' | 'NO';
-}>> {
+  evt_block_time: string;
+  evt_tx_hash: string;
+}
+
+export async function getTradersOpenPositions(
+  traderAddresses: string[],
+  period: '30d' | '90d' | '365d'
+): Promise<TradeRaw[]> {
   if (traderAddresses.length === 0) return [];
 
-  const intervalMap = { '30d': '30 DAY', '90d': '90 DAY', '365d': '365 DAY' };
-  const addressesClause = traderAddresses.map(a => `LOWER(HEX(takerordermaker)) = '${a.toLowerCase()}'`).join(' OR ');
+  const daysMap: Record<string, string> = {
+    '30d': '30',
+    '90d': '90',
+    '365d': '365',
+  };
+
+  const conditions = traderAddresses
+    .map(a => `LOWER(CAST(takerordermaker AS VARCHAR)) = '${a.toLowerCase()}'`)
+    .join(' OR ');
 
   const sql = `
     SELECT
-      LOWER(HEX(takerordermaker)) AS trader,
-      LOWER(HEX(makerassetid)) AS asset_id,
-      evt_block_time,
-      evt_tx_hash,
-      CAST(makeramountfilled AS DOUBLE) / 1e6 AS volume,
+      LOWER(CAST(takerordermaker AS VARCHAR)) AS trader,
+      LOWER(CAST(makerassetid AS VARCHAR)) AS asset_id,
+      CAST(makeramountfilled AS DOUBLE) / 1e6 AS maker_amount,
       CAST(takeramountfilled AS DOUBLE) / 1e6 AS taker_amount,
       CASE
-        WHEN LOWER(HEX(takerassetid)) = '0' THEN 'YES'
+        WHEN LOWER(CAST(takerassetid AS VARCHAR)) = '0x0000000000000000000000000000000000000000000000000000000000000000'
+        THEN 'YES'
         ELSE 'NO'
-      END AS side
+      END AS side,
+      evt_block_time,
+      evt_tx_hash
     FROM polymarket_polygon.ctfexchange_evt_ordersmatched
-    WHERE (${addressesClause})
-      AND evt_block_time >= NOW() - INTERVAL '${intervalMap[period]}'
+    WHERE (${conditions})
+      AND evt_block_time >= NOW() - INTERVAL '${daysMap[period]}' DAY
     ORDER BY evt_block_time DESC
+    LIMIT 5000
   `;
 
-  console.log(`[Dune] Fetching ${traderAddresses.length} traders' trades (${period})...`);
+  console.log(`[Dune] Open positions: ${traderAddresses.length} traders (${period})...`);
   const result = await executeQuery(sql, 120000);
   console.log(`[Dune] Got ${result.rows.length} trades`);
   return result.rows;
 }
 
-/**
- * Get resolved condition IDs (last N days) — to detect closed markets
- */
-export async function getResolvedConditions(daysAgo = 7): Promise<Set<string>> {
-  const sql = `
-    SELECT DISTINCT LOWER(HEX(conditionid)) AS condition_id
-    FROM polymarket_polygon.ctf_evt_conditionresolution
-    WHERE evt_block_time >= NOW() - INTERVAL '${daysAgo} DAY'
-  `;
+// ─── Resolved Conditions ────────────────────────────────────────────────────
 
-  const result = await executeQuery(sql);
-  const resolved = new Set(result.rows.map(r => r.condition_id));
-  console.log(`[Dune] ${resolved.size} resolved conditions (last ${daysAgo}d)`);
-  return resolved;
+export interface ResolvedCondition {
+  condition_id: string;
+  payout_numerators: string; // JSON array like "[1,0]" for binary
+  evt_block_time: string;
 }
 
-/**
- * Get resolved condition details with payout (for realized P&L)
- */
-export async function getResolvedConditionDetails(daysAgo = 90): Promise<Map<string, {
-  payout_numerators: string;
-  evt_block_time: string;
-}>> {
+export async function getResolvedConditions(daysAgo = 30): Promise<Map<string, ResolvedCondition>> {
   const sql = `
     SELECT
-      LOWER(HEX(conditionid)) AS condition_id,
-      payoutnumerators,
+      LOWER(CAST(conditionid AS VARCHAR)) AS condition_id,
+      CAST(payoutnumerators AS VARCHAR) AS payout_numerators,
       evt_block_time
     FROM polymarket_polygon.ctf_evt_conditionresolution
-    WHERE evt_block_time >= NOW() - INTERVAL '${daysAgo} DAY'
+    WHERE evt_block_time >= NOW() - INTERVAL '${daysAgo}' DAY
   `;
 
   const result = await executeQuery(sql, 120000);
-  const map = new Map<string, { payout_numerators: string; evt_block_time: string }>();
+  const map = new Map<string, ResolvedCondition>();
   for (const row of result.rows) {
     map.set(row.condition_id, {
-      payout_numerators: row.payoutnumerators,
+      condition_id: row.condition_id,
+      payout_numerators: row.payout_numerators,
       evt_block_time: row.evt_block_time,
     });
   }
+  console.log(`[Dune] ${map.size} resolved conditions (last ${daysAgo}d)`);
   return map;
+}
+
+// ─── Position Aggregator ────────────────────────────────────────────────────
+
+export function aggregateOpenPositions(
+  trades: TradeRaw[],
+  currentPrices: Map<string, { yesPrice: number; noPrice: number }>,
+  resolvedConditions: Set<string>
+): Map<string, OpenPosition[]> {
+  // Group by trader
+  const byTrader = new Map<string, Map<string, {
+    shares: number;
+    avgCost: number;
+    totalCost: number;
+    side: 'YES' | 'NO';
+  }>>();
+
+  for (const t of trades) {
+    if (!byTrader.has(t.trader)) {
+      byTrader.set(t.trader, new Map());
+    }
+    const positions = byTrader.get(t.trader)!;
+    const key = t.asset_id;
+
+    if (!positions.has(key)) {
+      positions.set(key, { shares: 0, avgCost: 0, totalCost: 0, side: t.side });
+    }
+    const p = positions.get(key)!;
+
+    // t.maker_amount = shares bought/sold
+    // t.taker_amount = USDC paid/received
+    // taker is the one who "takes" from AMM — pays USDC, gets shares
+    // For the maker (trader), maker_amount is the shares they give, taker_amount is what they receive
+    // But we track from takerordermaker's perspective: they are the counterparty to the AMM
+    // taker_amount / maker_amount = price per share
+
+    p.shares += t.maker_amount;
+    p.totalCost += t.taker_amount;
+    if (p.shares !== 0) {
+      p.avgCost = p.totalCost / Math.abs(p.shares);
+    }
+    p.side = t.side;
+  }
+
+  // Build result per trader
+  const result = new Map<string, OpenPosition[]>();
+
+  for (const [trader, positions] of byTrader) {
+    const traderPositions: OpenPosition[] = [];
+
+    for (const [assetId, pos] of positions) {
+      if (Math.abs(pos.shares) < 0.0001) continue; // skip zero positions
+
+      const isResolved = resolvedConditions.has(assetId);
+      const prices = currentPrices.get(assetId.toLowerCase());
+      const currentPrice = prices
+        ? (pos.side === 'YES' ? prices.yesPrice : prices.noPrice)
+        : 0.5;
+
+      const marketValue = Math.abs(pos.shares) * currentPrice;
+      const costBasis = Math.abs(pos.shares) * pos.avgCost;
+      const unrealizedPnl = marketValue - costBasis;
+
+      traderPositions.push({
+        assetId,
+        conditionId: assetId,
+        side: pos.side,
+        shares: pos.shares,
+        avgCost: pos.avgCost,
+        currentPrice,
+        marketValue,
+        unrealizedPnl,
+        question: 'Market ' + assetId.slice(0, 12),
+        slug: 'market-' + assetId.slice(0, 8),
+        isResolved,
+      });
+    }
+
+    // Sort by absolute unrealized P&L descending
+    traderPositions.sort((a, b) => Math.abs(b.unrealizedPnl) - Math.abs(a.unrealizedPnl));
+    result.set(trader, traderPositions);
+  }
+
+  return result;
+}
+
+// ─── Combined: Full P&L for TOP traders ────────────────────────────────────
+
+export interface FullTraderPnl {
+  trader: string;
+  realized_pnl: number;
+  unrealized_pnl: number;
+  total_pnl: number;
+  num_claims: number;
+  open_positions_count: number;
+  open_positions: OpenPosition[];
+}
+
+export async function getFullTradersPnl(
+  period: '30d' | '90d' | '365d',
+  limit = 25
+): Promise<FullTraderPnl[]> {
+  // 1. Get realized P&L from payoutredemption
+  const realized = await getTopTradersRealizedPnl(period, limit);
+  const topAddresses = realized.map(r => r.trader);
+
+  // 2. Get open positions from trades
+  const trades = await getTradersOpenPositions(topAddresses, period);
+
+  // 3. Get resolved conditions
+  const daysMap: Record<string, number> = { '30d': 30, '90d': 90, '365d': 365 };
+  const resolvedMap = await getResolvedConditions(daysMap[period]);
+  const resolvedConditions = new Set(resolvedMap.keys());
+
+  // 4. Build empty price map (we'll try Gamma after)
+  const prices = new Map<string, { yesPrice: number; noPrice: number }>();
+
+  // 5. Aggregate positions
+  const positionsMap = aggregateOpenPositions(trades, prices, resolvedConditions);
+
+  // 6. Combine
+  return realized.map(r => {
+    const positions = positionsMap.get(r.trader) || [];
+    const unrealized_pnl = positions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
+    return {
+      trader: r.trader,
+      realized_pnl: r.realized_pnl,
+      unrealized_pnl,
+      total_pnl: r.realized_pnl + unrealized_pnl,
+      num_claims: r.num_claims,
+      open_positions_count: positions.length,
+      open_positions: positions,
+    };
+  });
 }
