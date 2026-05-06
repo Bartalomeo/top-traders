@@ -24,8 +24,7 @@ function PositionRow({ position }: { position: any }) {
   const avgCost = parseFloat(position.avgCost || '0');
   const marketValue = parseFloat(position.marketValue || '0');
   // Polymarket URL: strip trailing number (e.g. "russia-ukraine-ceasefire-before-gta-vi-554" -> "russia-ukraine-ceasefire-before-gta-vi")
-  const slug = (position.slug || '').replace(/-\d+$/, '');
-  const polymarketUrl = slug ? `https://polymarket.com/event/${slug}` : null;
+  const polymarketUrl = position.url || `https://polymarket.com/event/${(position.slug || '').replace(/-\d+$/, '')}`;
 
   return (
     <div className="glass-card rounded-xl p-4 border border-zinc-800/60 hover:border-violet-500/30 transition-all">

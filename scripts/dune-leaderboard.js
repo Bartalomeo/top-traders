@@ -36,6 +36,59 @@ const DUNE_API_KEY = process.env.DUNE_API_KEY || '7AxKk2kmqKjaAzkahH1T3mAIANxXK5
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL || 'https://relevant-mole-108874.upstash.io';
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || 'gQAAAAAAAalKAAIgcDEwZGVkYWYxNzhlMjA0MmY0YjA4MzQzNWE4ZDhiZGNiNw';
 const GAMMA_BASE = 'https://gamma-api.polymarket.com';
+const CLOB_BASE = 'https://clob.polymarket.com';
+
+// CLOB API cache — fetches ALL markets (including closed) via CLOB API
+// Provides condition_id (hex) + market_slug (clean, no trailing number) + prices
+let clobCache = null;
+let clobCacheTime = 0;
+
+async function getCLOBCache() {
+  if (clobCache && (Date.now() - clobCacheTime) < 300000) return clobCache;
+  console.log('[CLOB] Fetching all markets...');
+  try {
+    // Fetch 500 most recent markets (includes closed ones)
+    const data = await httpsGet(CLOB_BASE + '/markets?closed=true&limit=500', 15000);
+    const result = JSON.parse(data);
+    const markets = result.data || [];
+
+    const cache = {};
+    for (let i = 0; i < markets.length; i++) {
+      const m = markets[i];
+      const tokens = m.tokens || [];
+      // Clean slug: remove trailing number (e.g. "trump-2024-3" -> "trump-2024")
+      const rawSlug = m.market_slug || '';
+      const cleanSlug = rawSlug.replace(/-\d+$/, '');
+
+      // Store by condition_id (hex)
+      cache['cond_' + (m.condition_id || '').toLowerCase()] = {
+        slug: cleanSlug,
+        question: m.question || rawSlug,
+        yesPrice: 0.5,
+        noPrice: 0.5,
+      };
+
+      // Store by token_id for Dune takerAssetId lookups
+      for (let j = 0; j < tokens.length; j++) {
+        cache['tok_' + tokens[j].token_id] = cache['cond_' + (m.condition_id || '').toLowerCase()];
+        // Set yes/no price from token data
+        if (tokens[j].outcome && tokens[j].outcome.toLowerCase().includes('yes')) {
+          cache['cond_' + (m.condition_id || '').toLowerCase()].yesPrice = parseFloat(tokens[j].price) || 0.5;
+        } else {
+          cache['cond_' + (m.condition_id || '').toLowerCase()].noPrice = parseFloat(tokens[j].price) || 0.5;
+        }
+      }
+    }
+
+    clobCache = cache;
+    clobCacheTime = Date.now();
+    console.log('[CLOB] Cached ' + Object.keys(cache).length + ' entries (' + markets.length + ' markets)');
+    return cache;
+  } catch (err) {
+    console.error('[CLOB] Error: ' + err.message);
+    return {};
+  }
+}
 const TOP_N = 25;
 const POSITIONS_LIMIT = 50;
 
@@ -299,12 +352,20 @@ function enrichPositionsWithGamma(positions, gamma) {
 
       if (gInfo) {
         p.question = gInfo.question || p.assetId.slice(0, 12);
-        // Polymarket URL: strip trailing number from slug
-        p.slug = (gInfo.slug || 'market').replace(/-\d+$/, '');
+        // Polymarket URL: use clean slug if available, otherwise assetId URL
+        const cleanSlug = (gInfo.slug || '').replace(/-\d+$/, '');
+        if (cleanSlug) {
+          p.slug = cleanSlug;
+          p.url = 'https://polymarket.com/event/' + cleanSlug;
+        } else {
+          p.slug = p.assetId;
+          p.url = 'https://polymarket.com/market?assetId=' + p.assetId;
+        }
         p.currentPrice = p.side === 'YES' ? gInfo.yesPrice : gInfo.noPrice;
       } else {
         p.question = 'Market ' + p.assetId.slice(0, 12);
-        p.slug = 'market-' + p.assetId.slice(0, 8);
+        p.slug = p.assetId;
+        p.url = 'https://polymarket.com/market?assetId=' + p.assetId;
         p.currentPrice = p.isResolved ? 0 : 0.5; // unknown resolved = 0, open = 0.5
       }
 
@@ -382,16 +443,14 @@ async function refreshAllPositions(period) {
   const addresses = traders.map(function(t) { return t.trader; });
   console.log('[Positions] Processing ' + addresses.length + ' traders...');
 
+  const resolvedSet = new Set(); // resolved conditions not fetched (avoid Dune 402)
   const trades = await getTradersTrades(addresses, period);
   console.log('[Positions] ' + (trades.length) + ' total trades');
 
-  // Note: resolved conditions NOT fetched (Dune 402 rate limits)
-  // All positions treated as open, Gamma provides current prices
-  const resolvedSet = new Set();
-  const gamma = await getGammaCache();
-
+  const clob = await getCLOBCache();
+  // All positions treated as open, CLOB provides current prices and slugs
   const byTrader = aggregatePositions(trades, resolvedSet);
-  enrichPositionsWithGamma(byTrader, gamma);
+  enrichPositionsWithGamma(byTrader, clob); // reuse Gamma naming for compatibility
 
   let stored = 0;
   for (let i = 0; i < addresses.length; i++) {
