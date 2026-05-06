@@ -16,6 +16,7 @@ import {
   Activity,
   Bookmark,
   Loader2,
+  Clock,
 } from 'lucide-react';
 import { CATEGORY_COLORS, CATEGORY_LABELS, formatVolume } from '@/lib/polymarket-api';
 
@@ -217,17 +218,19 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'pnl' | 'winRate' | 'trades'>('pnl');
   const [loading, setLoading] = useState(true);
+  const [activePeriod, setActivePeriod] = useState<'30d' | '90d' | '365d'>('30d');
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([
-      fetch('/api/traders?limit=10').then(r => r.json()).catch(() => ({ traders: [] })),
+      fetch(`/api/traders?period=${activePeriod}&limit=25`).then(r => r.json()).catch(() => ({ traders: [] })),
       fetch('/api/markets').then(r => r.json()).catch(() => ({ hot: [] })),
     ]).then(([tradersData, marketsData]) => {
       setTraders(tradersData.traders || []);
       setMarkets(marketsData.hot || []);
       setLoading(false);
     });
-  }, []);
+  }, [activePeriod]);
 
   const filteredTraders = traders
     .filter(t => {
@@ -379,32 +382,33 @@ export default function HomePage() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-2xl font-bold">Top Traders</h3>
-              <p className="text-sm text-zinc-500">Ranked by total P&L — verified on-chain</p>
+              <p className="text-sm text-zinc-500">Ranked by P&L — on-chain data from Dune Analytics</p>
             </div>
 
-            {/* Filters */}
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-                <input
-                  type="text"
-                  placeholder="Search traders..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 pr-4 py-2 bg-zinc-900/60 border border-zinc-800/80 rounded-xl text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-violet-500/50 w-48"
-                />
-              </div>
-
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="px-3 py-2 bg-zinc-900/60 border border-zinc-800/80 rounded-xl text-sm text-white focus:outline-none focus:border-violet-500/50"
-              >
-                <option value="pnl">Sort by P&L</option>
-                <option value="winRate">Sort by Win Rate</option>
-                <option value="trades">Sort by Trades</option>
-              </select>
+            {/* Period Tabs */}
+            <div className="flex items-center gap-1 p-1 bg-zinc-900/60 border border-zinc-800/80 rounded-xl">
+              {(['30d', '90d', '365d'] as const).map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setActivePeriod(period)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    activePeriod === period
+                      ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg'
+                      : 'text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  {period}
+                </button>
+              ))}
             </div>
+          </div>
+
+          {/* Source badge */}
+          <div className="flex items-center gap-2 mb-4 text-xs text-zinc-500">
+            <Clock className="w-3 h-3" />
+            <span>Data refreshed hourly from Dune Analytics</span>
+            <span>•</span>
+            <span>Top 25 by P&L for {activePeriod}</span>
           </div>
 
         <div
@@ -416,7 +420,7 @@ export default function HomePage() {
             </div>
           ) : filteredTraders.length === 0 ? (
             <div className="text-center py-16 text-zinc-500">
-              No traders found. Real data from Gamma API loading...
+              No trader data yet. Dune API is fetching historical data — check back in a few minutes.
             </div>
           ) : (
             filteredTraders.map((trader, i) => (

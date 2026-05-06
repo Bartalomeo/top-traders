@@ -166,14 +166,22 @@ export default function TraderPage() {
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('all');
 
   useEffect(() => {
-    fetch('/api/traders?limit=50')
-      .then(r => r.json())
-      .then(data => {
-        const found = (data.traders || []).find((t: any) => t.address === address);
-        setTrader(found || null);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    // Fetch trader stats from leaderboard
+    Promise.all([
+      fetch('/api/traders?period=30d&limit=50').then(r => r.json()).catch(() => ({ traders: [] })),
+      fetch(`/api/positions?address=${address}`).then(r => r.json()).catch(() => ({ positions: [] })),
+    ]).then(([tradersData, positionsData]) => {
+      const found = (tradersData.traders || []).find((t: any) => t.address === address);
+      if (found) {
+        setTrader({
+          ...found,
+          positions: positionsData.positions || [],
+        });
+      } else {
+        setTrader(null);
+      }
+      setLoading(false);
+    }).catch(() => setLoading(false));
   }, [address]);
 
   if (loading) {
