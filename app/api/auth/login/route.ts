@@ -21,14 +21,14 @@ export async function POST(req: NextRequest) {
 
     const token = createToken(user.userId);
 
-    return NextResponse.json(
-      { success: true, userId: user.userId },
-      {
-        headers: {
-          'Set-Cookie': makeSessionCookie(token),
-        },
-      }
-    );
+    const response = NextResponse.json({ success: true, userId: user.userId });
+    response.cookies.set('tt_session', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60,
+      path: '/',
+    });
+    return response;
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserByEmail, setUser, setEmailIndex, type UserStore } from '@/lib/redis';
-import { createToken, makeSessionCookie } from '@/lib/auth';
+import { createToken } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,14 +38,14 @@ export async function POST(req: NextRequest) {
 
     const token = createToken(userId);
 
-    return NextResponse.json(
-      { success: true, userId },
-      {
-        headers: {
-          'Set-Cookie': makeSessionCookie(token),
-        },
-      }
-    );
+    const response = NextResponse.json({ success: true, userId });
+    response.cookies.set('tt_session', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60,
+      path: '/',
+    });
+    return response;
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
