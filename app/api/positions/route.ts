@@ -13,29 +13,35 @@ export async function GET(req: NextRequest) {
     }
 
     const positionsKey = `tt:trader:${address.toLowerCase()}:positions`;
-    const items: string[] = await redis.lrange(positionsKey, 0, -1);
+    const raw: unknown[] = await redis.lrange(positionsKey, 0, -1);
 
+    // Upstash SDK deserializes JSON strings automatically, so items may be objects or strings
     const positions = [];
-    for (const jsonStr of items) {
-      try {
-        positions.push(JSON.parse(jsonStr));
-      } catch {
-        // skip malformed
+    for (const item of raw) {
+      if (typeof item === 'string') {
+        try { positions.push(JSON.parse(item)); }
+        catch { /* skip malformed */ }
+      } else if (item && typeof item === 'object') {
+        positions.push(item);
       }
     }
 
-    // Also get the trader's summary from Redis hash
+    // Get trader summary from Redis hash
     const meta: Record<string, string> = await redis.hgetall(`tt:trader:${address.toLowerCase()}:30d`) as any;
 
     return NextResponse.json({
       address: address.toLowerCase(),
       positions,
       count: positions.length,
-      source: items.length > 0 ? 'live' : 'empty',
+      source: positions.length > 0 ? 'live' : 'empty',
       trader: meta && meta.address ? {
-        realizedPnl: meta.realizedPnl,
-        numClaims: parseInt(meta.numClaims || '0'),
+        realizedPnl: meta.netPnl || meta.realizedPnl || '0',
+        winnings: meta.winnings || '0',
+        costs: meta.costs || '0',
+        numClaims: parseInt(meta.numSettlements || meta.numClaims || '0'),
+        numTrades: parseInt(meta.numTrades || '0'),
         rank: parseInt(meta.rank || '0'),
+        netPnl: parseFloat(meta.netPnl || meta.realizedPnl || '0'),
       } : null,
     });
   } catch (err: any) {

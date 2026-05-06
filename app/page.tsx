@@ -152,7 +152,7 @@ export default function HomePage() {
         {/* Period Selector */}
         <div className="flex justify-center">
           <div className="inline-flex items-center gap-1 p-1 bg-zinc-900/80 rounded-xl border border-zinc-800">
-            {(['30d', '90d', '365d'] as const).map(period => (
+            {(['30d', '90d'] as const).map(period => (
               <button
                 key={period}
                 onClick={() => setActivePeriod(period)}
@@ -162,7 +162,7 @@ export default function HomePage() {
                     : 'text-zinc-400 hover:text-white'
                 }`}
               >
-                {period === '30d' ? '30 Days' : period === '90d' ? '90 Days' : '1 Year'}
+                {period === '30d' ? '30 Days' : '90 Days'}
               </button>
             ))}
           </div>
@@ -178,7 +178,7 @@ export default function HomePage() {
             </div>
             <div>
               <h3 className="text-xl font-bold text-white">
-                {activePeriod === '30d' ? '30-Day' : activePeriod === '90d' ? '90-Day' : '1-Year'} Leaderboard
+                {activePeriod === '30d' ? '30-Day' : '90-Day'} Leaderboard
               </h3>
               <p className="text-xs text-zinc-500">
                 Ranked by net P&L (Winnings - Costs)

@@ -94,23 +94,15 @@ export default function TraderPage() {
     if (!address) return;
     setLoading(true);
 
-    Promise.all([
-      // Get trader info from leaderboard
-      fetch(`/api/traders?period=30d&limit=50`).then(r => r.json()).catch(() => ({ traders: [] })),
-      // Get open positions
-      fetch(`/api/positions?address=${address}`).then(r => r.json()).catch(() => ({ positions: [], source: 'error' })),
-    ]).then(([tradersData, positionsData]) => {
-      const found = (tradersData.traders || []).find((t: any) =>
-        t.address.toLowerCase() === address
-      );
-
-      if (found) {
-        setTraderData(found);
-      }
-      setPositions(positionsData.positions || []);
-      setPositionsSource(positionsData.source || 'error');
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    fetch(`/api/positions?address=${address}`)
+      .then(r => r.json())
+      .then(data => {
+        setTraderData(data.trader || null);
+        setPositions(data.positions || []);
+        setPositionsSource(data.source || 'error');
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [address]);
 
   if (loading) {
@@ -202,12 +194,24 @@ export default function TraderPage() {
                   </div>
                 </div>
                 <div className="p-3 bg-zinc-900/60 rounded-xl">
+                  <div className="text-xs text-zinc-500 mb-1">Winnings</div>
+                  <div className="text-lg font-bold text-emerald-400">
+                    +${parseFloat(traderData?.winnings || '0').toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+                <div className="p-3 bg-zinc-900/60 rounded-xl">
+                  <div className="text-xs text-zinc-500 mb-1">Costs</div>
+                  <div className="text-lg font-bold text-red-400">
+                    ${parseFloat(traderData?.costs || '0').toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+                <div className="p-3 bg-zinc-900/60 rounded-xl">
                   <div className="text-xs text-zinc-500 mb-1">Settlements</div>
                   <div className="text-lg font-bold text-white">{traderData?.numClaims || 0}</div>
                 </div>
                 <div className="p-3 bg-zinc-900/60 rounded-xl">
-                  <div className="text-xs text-zinc-500 mb-1">Open Positions</div>
-                  <div className="text-lg font-bold text-white">{positions.length}</div>
+                  <div className="text-xs text-zinc-500 mb-1">Trades</div>
+                  <div className="text-lg font-bold text-white">{traderData?.numTrades || 0}</div>
                 </div>
               </div>
             </div>

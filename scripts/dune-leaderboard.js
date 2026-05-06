@@ -199,40 +199,9 @@ async function getLeaderboardPnl(period) {
   return result.rows || [];
 }
 
-// Resolved condition IDs — get from payoutredemption instead of conditionresolution
-// (payoutredemption = the event when a trader CLAIMS their winnings, means market resolved)
-// We cache these per period to avoid duplicate Dune queries
-let resolvedConditionCache = null;
-let resolvedConditionCacheTime = 0;
-
-async function getResolvedConditionIds(daysAgo) {
-  daysAgo = daysAgo || 30;
-  // Cache for 10 minutes
-  if (resolvedConditionCache && (Date.now() - resolvedConditionCacheTime) < 600000) {
-    return resolvedConditionCache;
-  }
-  const sql =
-    "SELECT DISTINCT LOWER(CAST(conditionid AS VARCHAR)) AS condition_id\n" +
-    "FROM polymarket_polygon.ctf_evt_conditionresolution\n" +
-    "WHERE evt_block_time >= NOW() - INTERVAL '" + daysAgo + "' DAY";
-  try {
-    console.log('[Dune] Fetching resolved conditions...');
-    const result = await duneQuery(sql, 60000);
-    const set = new Set();
-    for (let i = 0; i < (result.rows || []).length; i++) {
-      set.add(result.rows[i].condition_id);
-    }
-    console.log('[Dune] ' + set.size + ' resolved conditions');
-    resolvedConditionCache = set;
-    resolvedConditionCacheTime = Date.now();
-    return set;
-  } catch (e) {
-    console.error('[Dune] Resolved conditions error: ' + e.message + ' (treating all as unresolved)');
-    resolvedConditionCache = new Set();
-    resolvedConditionCacheTime = Date.now();
-    return new Set();
-  }
-}
+// NOTE: Resolved conditions query removed (Dune 402 rate limits)
+// All positions shown with Gamma price (or 0.5 if unknown/unresolved)
+// Realized P&L already captured via payoutredemption in the leaderboard query
 
 // Trades for open positions (unresolved markets only)
 async function getTradersTrades(traderAddresses, period) {
@@ -415,9 +384,9 @@ async function refreshAllPositions(period) {
   const trades = await getTradersTrades(addresses, period);
   console.log('[Positions] ' + (trades.length) + ' total trades');
 
-  const resolvedSet = await getResolvedConditionIds(30);
-  console.log('[Positions] ' + resolvedSet.size + ' resolved conditions');
-
+  // Note: resolved conditions NOT fetched (Dune 402 rate limits)
+  // All positions treated as open, Gamma provides current prices
+  const resolvedSet = new Set();
   const gamma = await getGammaCache();
 
   const byTrader = aggregatePositions(trades, resolvedSet);
